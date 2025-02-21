@@ -1,31 +1,100 @@
 package main
 
 import (
-  "log"
+  "database/sql"
+  "flag"
+  "log/slog"
   "net/http"
+  "os"
+
+  // Import the models package that we just created. You need to prefix this
+  // with whatever module path you set up back in chapter 02.01 (Project Setup
+  // and Creating a Module) so that the import statement looks like this:
+  // "{your-module-path}/internal/models". If you can't remember what module
+  // path you used, you can find it at the top of the go.mod file.
+  "github.com/kjloveless/snippetbox/internal/models"
+
+  _ "github.com/go-sql-driver/mysql"
 )
 
+// Define an application struct to hold the application-wide dependencies for
+// the web application. For now we'll only include the structured logger, but
+// we'll add more to this as the build progresses.
+// Add a snippets field to the applicaion struct. This will allow us to make
+// the SnippetModel object available to our handlers.
+type application struct {
+  logger    *slog.Logger
+  snippets  *models.SnippetModel
+}
+
 func main() {
-  mux := http.NewServeMux()
+  // Define a new command-line flag with the name 'addr', a default value of
+  // ":4000" and some short help text explaining what the flag controls. The
+  // value of the flag will be stored in the addr variable at runtime.
+  addr := flag.String("addr", ":4000", "HTTP network address")
 
-  // Create a file server which serves files out of the "./ui/static"
-  // directory. Note that the path given to the http.Dir function is 
-  // relative to the project directory root.
-  fileServer := http.FileServer(http.Dir("./ui/static/"))
+  // Define a new command-line flag for the MySQL DSN string.
+  dsn := flag.String("dsn", "web:toor@/snippetbox?parseTime=true", "MySQL data source name")
 
-  // Use the mux.Handle() function to register the file server as the handler
-  // for all URL paths that start with "/static/". For matching paths, we strip
-  // the "/static" prefix before the request reaches the file server.
-  mux.Handle("GET /static/", http.StripPrefix("/static", fileServer))
+  // Importantly, we use the flag.Parse() function to parse the command-line
+  // flag. This reads in the command-line flag value and assigns it to the addr
+  // variable. You need to call this *before* you use the addr variable 
+  // otherwise it will always contain the default value of ":4000". If any
+  // errors are encountered during parsing the application will be terminated.
+  flag.Parse()
 
-  // Register the other application routes as normal...
-  mux.HandleFunc("GET /{$}", home)
-  mux.HandleFunc("GET /snippet/view/{id}", snippetView)
-  mux.HandleFunc("GET /snippet/create", snippetCreate)
-  mux.HandleFunc("POST /snippet/create", snippetCreatePost)
+  // Use the slog.New() function to initialize a new structured logger, which
+  // writes to the standard out stream and uses the default settings.
+  logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 
-  log.Print("starting server on :4000")
+  // To keep the main() function tidy I've put the code for creating a
+  // connection pool into the separate openDB() function below. We pass
+  // openDB() the DSN from the command-line flag.
+  db, err := openDB(*dsn)
+  if err != nil {
+    logger.Error(err.Error())
+    os.Exit(1)
+  }
 
-  err := http.ListenAndServe(":4000", mux)
-  log.Fatal(err)
+  // We also defer a call to db.Close(), so that the connection pool is closed
+  // before the main() function exists.
+  defer db.Close()
+
+  // Initializes a new instance of our application struct, containing the 
+  // dependencies (for now, just the structured logger).
+  // Initializes a models.SnippetModel instance containing the connection pool
+  // and add it to the application dependencies.
+  app := &application{ 
+    logger: logger, 
+    snippets: &models.Snippet{DB: db},
+  }
+
+  // Use the Info() method to log the starting server message at Info severity
+  // (along with the listen address as an attribute).
+  logger.Info("starting server", "addr", *addr)
+
+  err = http.ListenAndServe(*addr, app.routes())
+
+  // And we also use the Error() method to log any error message returned by
+  // http.ListenAndServe() at Error severity (with no additional attributes),
+  // and then call os.Exit(1) to terminate the application with exit code 1.
+  logger.Error(err.Error())
+  os.Exit(1)
+}
+
+// The openDB() function wraps sql.Open() and returns a sql.DB connection pool
+// for a given DSN.
+func openDB(dsn string) (*sql.DB, error) {
+  db, err := sql.Open("mysql", dsn)
+  if err != nil {
+    return nil, err
+  }
+
+  err = db.Ping()
+  if err != nil {
+    db.Close()
+    return nil, err
+  }
+
+  return db, nil
 }
