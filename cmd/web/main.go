@@ -66,7 +66,7 @@ func main() {
   // and add it to the application dependencies.
   app := &application{ 
     logger: logger, 
-    snippets: &models.Snippet{DB: db},
+    snippets: &models.SnippetModel{DB: db},
   }
 
   // Use the Info() method to log the starting server message at Info severity
