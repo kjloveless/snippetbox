@@ -3,6 +3,7 @@ package main
 import (
   "database/sql"
   "flag"
+  "html/template"
   "log/slog"
   "net/http"
   "os"
@@ -22,9 +23,11 @@ import (
 // we'll add more to this as the build progresses.
 // Add a snippets field to the applicaion struct. This will allow us to make
 // the SnippetModel object available to our handlers.
+// Add a templateCache field to the application struct.
 type application struct {
-  logger    *slog.Logger
-  snippets  *models.SnippetModel
+  logger        *slog.Logger
+  snippets      *models.SnippetModel
+  templateCache map[string]*template.Template
 }
 
 func main() {
@@ -34,7 +37,7 @@ func main() {
   addr := flag.String("addr", ":4000", "HTTP network address")
 
   // Define a new command-line flag for the MySQL DSN string.
-  dsn := flag.String("dsn", "web:toor@/snippetbox?parseTime=true", "MySQL data source name")
+  dsn := flag.String("dsn", "web:pass@/snippetbox?parseTime=true", "MySQL data source name")
 
   // Importantly, we use the flag.Parse() function to parse the command-line
   // flag. This reads in the command-line flag value and assigns it to the addr
@@ -60,13 +63,21 @@ func main() {
   // before the main() function exists.
   defer db.Close()
 
+  // Initialize a new template cache...
+  templateCache, err := newTemplateCache()
+  if err != nil {
+    logger.Error(err.Error())
+    os.Exit(1)
+  }
+
   // Initializes a new instance of our application struct, containing the 
   // dependencies (for now, just the structured logger).
   // Initializes a models.SnippetModel instance containing the connection pool
   // and add it to the application dependencies.
   app := &application{ 
-    logger: logger, 
-    snippets: &models.SnippetModel{DB: db},
+    logger:         logger, 
+    snippets:       &models.SnippetModel{DB: db},
+    templateCache:  templateCache,
   }
 
   // Use the Info() method to log the starting server message at Info severity

@@ -3,7 +3,6 @@ package main
 import (
   "errors"
   "fmt"
-  "html/template"
   "net/http"
   "strconv"
 
@@ -19,37 +18,10 @@ func (app *application) home(w http.ResponseWriter, r *http.Request) {
     return
   }
 
-  // Initialize a slice containing the paths to the two files. It's important
-  // to note that the file containing our base template must be the *first*
-  // file in the slice.
-  files := []string{
-    "./ui/html/base.tmpl",
-    "./ui/html/partials/nav.tmpl",
-    "./ui/html/pages/home.tmpl",
-  }
-
-  // Use the template.ParseFiles() function to read the template file into a
-  // template set. If there's an error, we log the detailed error message, use
-  // the http.Error() function to send an Internal Server Error response to the
-  // user, and then return from the handler so no subsequent code is executed.
-  ts, err := template.ParseFiles(files...)
-  if err != nil {
-    app.serverError(w, r, err) // Use the serverError() helper.
-    return
-  }
-
-  // Create an instance of a templateData struct holding the slice of snippets.
-  data := templateData{
+  // Use the new render helper.
+  app.render(w, r, http.StatusOK, "home.tmpl", templateData{
     Snippets: snippets,
-  }
-
-  // Then we use the Execute() method on the template set to write the
-  // template content as the response body. The last parameters to Execute()
-  // represents any dynamic data that we want to pass in.
-  err = ts.ExecuteTemplate(w, "base", data)
-  if err != nil {
-    app.serverError(w, r, err) // Use the serverError() helper.
-  }
+  })
 }
 
 func (app *application) snippetView(w http.ResponseWriter, r *http.Request) {
@@ -72,31 +44,10 @@ func (app *application) snippetView(w http.ResponseWriter, r *http.Request) {
     return
   }
 
-  // Initialize a slice containing the paths to the view.tmpl file,
-  // plus the base layout and navigation partial that we made earlier.
-  files := []string{
-    "./ui/html/base.tmpl",
-    "./ui/html/partials/nav.tmpl",
-    "./ui/html/pages/view.tmpl",
-  }
-
-  // Parse the template files...
-  ts, err := template.ParseFiles(files...)
-  if err != nil {
-    app.serverError(w, r, err)
-    return
-  }
-
-  // Create an instance of a templateData struct holding the snippet data.
-  data := templateData{
+  // Use the new render helper.
+  app.render(w, r, http.StatusOK, "view.tmpl", templateData{
     Snippet: snippet,
-  }
-
-  // Pass in the templateData struct when executing the template.
-  err = ts.ExecuteTemplate(w, "base", data)
-  if err != nil {
-    app.serverError(w, r, err)
-  }
+  })
 }
 
 func (app *application) snippetCreate(w http.ResponseWriter, r *http.Request) {
