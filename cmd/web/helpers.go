@@ -5,7 +5,18 @@ import (
   "fmt"
   "net/http"
   "runtime/debug"
+  "time"
 )
+
+// Create a newTemplate() helper, which returns a templateData struct
+// initialized with the current year. Note that we're not using the
+// *http.Request parameter here at the moment, but we will do that later in the
+// book.
+func (app *application) newTemplateData(r *http.Request) templateData {
+  return templateData{
+    CurrentYear: time.Now().Year(),
+  }
+}
 
 func (app *application) render(w http.ResponseWriter, r *http.Request, status int, page string, data templateData) {
   // Retrieve the appropriate template set from the cache based on the page
