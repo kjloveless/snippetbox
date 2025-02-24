@@ -7,6 +7,7 @@ import (
   "log/slog"
   "net/http"
   "os"
+  "time"
 
   // Import the models package that we just created. You need to prefix this
   // with whatever module path you set up back in chapter 02.01 (Project Setup
@@ -15,6 +16,9 @@ import (
   // path you used, you can find it at the top of the go.mod file.
   "github.com/kjloveless/snippetbox/internal/models"
 
+  "github.com/alexedwards/scs/mysqlstore"
+  "github.com/alexedwards/scs/v2"
+  "github.com/go-playground/form/v4"
   _ "github.com/go-sql-driver/mysql"
 )
 
@@ -24,10 +28,13 @@ import (
 // Add a snippets field to the applicaion struct. This will allow us to make
 // the SnippetModel object available to our handlers.
 // Add a templateCache field to the application struct.
+// Add a formDecoder field to hold a pointer to a form.Decoder instance.
 type application struct {
-  logger        *slog.Logger
-  snippets      *models.SnippetModel
-  templateCache map[string]*template.Template
+  logger          *slog.Logger
+  snippets        *models.SnippetModel
+  templateCache   map[string]*template.Template
+  formDecoder     *form.Decoder
+  sessionManager  *scs.SessionManager
 }
 
 func main() {
@@ -37,7 +44,7 @@ func main() {
   addr := flag.String("addr", ":4000", "HTTP network address")
 
   // Define a new command-line flag for the MySQL DSN string.
-  dsn := flag.String("dsn", "web:pass@/snippetbox?parseTime=true", "MySQL data source name")
+  dsn := flag.String("dsn", "web:toor@/snippetbox?parseTime=true", "MySQL data source name")
 
   // Importantly, we use the flag.Parse() function to parse the command-line
   // flag. This reads in the command-line flag value and assigns it to the addr
@@ -70,6 +77,17 @@ func main() {
     os.Exit(1)
   }
 
+  // Initialize a decoder instance...
+  formDecoder := form.NewDecoder()
+
+  // Use the scs.New() function to initialize a new session manager. Then we
+  // configure it to use our MySQL database as the session store, and set a
+  // lifetime of 12 hours (so that sessions automatically expire 12 hours after
+  // first being created).
+  sessionManager := scs.New()
+  sessionManager.Store = mysqlstore.New(db)
+  sessionManager.Lifetime = 12 * time.Hour
+
   // Initializes a new instance of our application struct, containing the 
   // dependencies (for now, just the structured logger).
   // Initializes a models.SnippetModel instance containing the connection pool
@@ -78,6 +96,8 @@ func main() {
     logger:         logger, 
     snippets:       &models.SnippetModel{DB: db},
     templateCache:  templateCache,
+    formDecoder:    formDecoder,
+    sessionManager: sessionManager,
   }
 
   // Use the Info() method to log the starting server message at Info severity
