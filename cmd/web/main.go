@@ -1,6 +1,7 @@
 package main
 
 import (
+  "crypto/tls"
   "database/sql"
   "flag"
   "html/template"
@@ -42,9 +43,9 @@ func main() {
   // ":4000" and some short help text explaining what the flag controls. The
   // value of the flag will be stored in the addr variable at runtime.
   addr := flag.String("addr", ":4000", "HTTP network address")
-
+  pass := flag.String("pass", "pass", "Password to use in DSN")
   // Define a new command-line flag for the MySQL DSN string.
-  dsn := flag.String("dsn", "web:toor@/snippetbox?parseTime=true", "MySQL data source name")
+  dsn := flag.String("dsn", "web:" + *pass + "@/snippetbox?parseTime=true", "MySQL data source name")
 
   // Importantly, we use the flag.Parse() function to parse the command-line
   // flag. This reads in the command-line flag value and assigns it to the addr
@@ -87,6 +88,11 @@ func main() {
   sessionManager := scs.New()
   sessionManager.Store = mysqlstore.New(db)
   sessionManager.Lifetime = 12 * time.Hour
+  // Make sure the the Secure attribute is set on our session cookies.
+  // Setting this means that the cookie will only be sent by a user's web
+  // browser when a HTTPS connections is being used (and won't be sent over an
+  // unsecure HTTP connection).
+  sessionManager.Cookie.Secure = true
 
   // Initializes a new instance of our application struct, containing the 
   // dependencies (for now, just the structured logger).
@@ -100,11 +106,39 @@ func main() {
     sessionManager: sessionManager,
   }
 
+  // Initialize a tls.Config struct to hold the non-default TLS setttings we
+  // want the server to use. In this case that only thing that we're changing
+  // is the curve preferences value, so that only elliptic curves with assembly
+  // implementations are used.
+  tlsConfig := &tls.Config{
+    CurvePreferences: []tls.CurveID{tls.X25519, tls.CurveP256},
+  }
+
+  // Initialize a new http.Server struct. We set the Addr and Handler fields so
+  // that the server uses the same network address and routes as before.
+  srv := &http.Server{
+    Addr:       *addr,
+    Handler:    app.routes(),
+    // Create a *log.Logger from our structured logger handler, which writes
+    // log entries at Error level, and assigns it to the ErrorLog field. If
+    // you would prefer to log the server errors at Warn level instead, you
+    // could pass slog.LevelWarn as the final parameter.
+    ErrorLog:   slog.NewLogLogger(logger.Handler(), slog.LevelError),
+    TLSConfig:  tlsConfig,
+    // Add Idle, Read, and Write timeouts to the server.
+    IdleTimeout:    time.Minute,
+    ReadTimeout:    5 * time.Second,
+    WriteTimeout:   10 * time.Second,
+  }
+
   // Use the Info() method to log the starting server message at Info severity
   // (along with the listen address as an attribute).
-  logger.Info("starting server", "addr", *addr)
+  logger.Info("starting server", "addr", srv.Addr)
 
-  err = http.ListenAndServe(*addr, app.routes())
+  // Use the ListenAndServeTLS() method to start the HTTPS server. We
+  // pass in the paths to the TLS certificate and corresponding private key as
+  // the two parameters.
+  err = srv.ListenAndServeTLS("./tls/cert.pem", "./tls/key.pem")
 
   // And we also use the Error() method to log any error message returned by
   // http.ListenAndServe() at Error severity (with no additional attributes),
