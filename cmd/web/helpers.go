@@ -9,6 +9,7 @@ import (
   "time"
 
   "github.com/go-playground/form/v4"
+  "github.com/justinas/nosurf"
 )
 
 // Create a newTemplate() helper, which returns a templateData struct
@@ -20,6 +21,9 @@ func (app *application) newTemplateData(r *http.Request) templateData {
     CurrentYear:  time.Now().Year(),
     // Add the flash message to the tempalte data, if one exists.
     Flash:        app.sessionManager.PopString(r.Context(), "flash"),
+    // Add the authentication status to the template data.
+    IsAuthenticated:  app.isAuthenticated(r),
+    CSRFToken:        nosurf.Token(r),
   }
 }
 
@@ -114,4 +118,14 @@ func (app *application) serverError(w http.ResponseWriter, r *http.Request,
 // sent.
 func (app *application) clientError(w http.ResponseWriter, status int) {
   http.Error(w, http.StatusText(status), status)
+}
+
+// Return true if the current request is from an authenticated user, otherwise
+// return false.
+func (app *application) isAuthenticated(r *http.Request) bool {
+  isAuthenticated, ok := r.Context().Value(isAuthenticatedContextKey).(bool)
+  if !ok {
+    return false
+  }
+  return isAuthenticated
 }
