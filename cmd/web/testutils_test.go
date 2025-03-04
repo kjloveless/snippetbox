@@ -5,15 +5,44 @@ import (
   "io"
   "log/slog"
   "net/http"
+  "net/http/cookiejar"
   "net/http/httptest"
   "testing"
+  "time"
+
+  "github.com/kjloveless/snippetbox/internal/models/mocks"
+
+  "github.com/alexedwards/scs/v2"
+  "github.com/go-playground/form/v4"
 )
 
 // Create a newTestApplication helper which returns an instance of our
 // application struct containing mocked dependencies.
 func newTestApplication(t *testing.T) *application {
+  // Create an instance of the template cache.
+  templateCache, err := newTemplateCache()
+  if err != nil {
+    t.Fatal(err)
+  }
+
+  // And a form decoder.
+  formDecoder := form.NewDecoder()
+
+  // And a session manager instance. Note that we use the same settings as
+  // production, except that we *don't* set a Store for the session manager. If
+  // no store is set, the SCS package will default to using a transient
+  // in-memory store, which is ideal for testing purposes.
+  sessionManager := scs.New()
+  sessionManager.Lifetime = 12 * time.Hour
+  sessionManager.Cookie.Secure = true
+
   return &application{
-    logger: slog.New(slog.DiscardHandler),
+    logger:           slog.New(slog.DiscardHandler),
+    snippets:         &mocks.SnippetModel{},
+    users:            &mocks.UserModel{},
+    templateCache:    templateCache,
+    formDecoder:      formDecoder,
+    sessionManager:   sessionManager,
   }
 }
 
@@ -25,7 +54,28 @@ type testServer struct {
 // Create a newTestServer helper which initializes and returns a new instance
 // of our custom testServer type.
 func newTestServer(t *testing.T, h http.Handler) *testServer {
+  // Initialize the test server as normal.
   ts := httptest.NewTLSServer(h)
+
+  // Initialize a new cookie jar.
+  jar, err := cookiejar.New(nil)
+  if err != nil {
+    t.Fatal(err)
+  }
+
+  // Add the cookie jar to the test server client. Any response cookies will
+  // now be stored and sent with subsequent requests when using this client.
+  ts.Client().Jar = jar
+
+  // Disable redirect-following for the test server client by setting a custom
+  // CheckRedirect function. This function will be called whenever a 3xx
+  // response is received by the client, and by always returning a
+  // http.ErrUseLastResponse error it forces the client to immediately return
+  // the received response.
+  ts.Client().CheckRedirect = func(req *http.Request, via []*http.Request) error {
+    return http.ErrUseLastResponse
+  }
+
   return &testServer{ts}
 }
 
